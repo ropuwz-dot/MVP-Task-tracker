@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TeamSync - MVP Task Tracker VPS</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+    <link href="https://cdn.jsdelivr.net/npm/remixicon@3.5.0/fonts/remixicon.css" rel="stylesheet">
+</head>
+<body class="dark-theme">
+    <div id="app" class="app-container">
+        
+        <!-- Auth View -->
+        <div id="view-login" class="view section-active login-view glass-panel">
+            <div class="login-box">
+                <div class="logo">
+                    <div class="logo-icon"><i class="ri-pulse-line"></i></div>
+                    <h2>TeamSync</h2>
+                </div>
+                <p class="login-subtitle">Вход в корпоративную систему</p>
+                <form id="login-form">
+                    <div class="form-group">
+                        <label>Логин</label>
+                        <input type="text" id="login-input" required placeholder="Ваш логин">
+                    </div>
+                    <div class="form-group">
+                        <label>Пароль</label>
+                        <input type="password" id="password-input" required placeholder="******">
+                    </div>
+                    <p id="login-error" class="text-danger" style="display:none; font-size: 0.85rem; margin-bottom: 1rem;"></p>
+                    <button type="submit" class="btn btn-primary" style="width: 100%; justify-content: center;">Войти</button>
+                </form>
+            </div>
+        </div>
+
+        <!-- Sidebar -->
+        <aside class="sidebar glass-panel hidden" id="sidebar">
+            <div class="logo">
+                <div class="logo-icon"><i class="ri-pulse-line"></i></div>
+                <h2>TeamSync</h2>
+            </div>
+            
+            <nav class="nav-menu">
+                <a href="#" class="nav-item active" data-view="dashboard">
+                    <i class="ri-dashboard-line"></i> Дашборд
+                </a>
+                <a href="#" class="nav-item" data-view="tasks">
+                    <i class="ri-task-line"></i> Мои задачи
+                </a>
+                <a href="#" class="nav-item" data-view="team" id="nav-team" style="display:none;">
+                    <i class="ri-group-line"></i> Команда
+                </a>
+                <a href="#" class="nav-item" data-view="settings" id="nav-settings" style="display:none;">
+                    <i class="ri-settings-3-line"></i> Справочники
+                </a>
+            </nav>
+
+            <div class="user-profile-widget glass-panel">
+                <div class="avatar" id="avatar-element">?</div>
+                <div class="user-info">
+                    <div class="user-name" id="current-user-name">Загрузка...</div>
+                    <div class="user-role" id="current-user-role">...</div>
+                </div>
+                <button id="btn-logout" class="icon-btn" title="Выйти"><i class="ri-logout-box-r-line"></i></button>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content hidden" id="main-content">
+            <!-- Header -->
+            <header class="top-header glass-panel">
+                <div class="header-title">
+                    <h1 id="page-title">Дашборд</h1>
+                    <p class="subtitle" id="page-subtitle">Обзор вашей работы на сегодня</p>
+                </div>
+                <div class="header-actions">
+                    <button class="btn btn-primary" id="btn-create-task">
+                        <i class="ri-add-line"></i> Новая задача
+                    </button>
+                </div>
+            </header>
+
+            <!-- Views Container -->
+            <div class="views-container">
+                
+                <!-- Dashboard View (Employee) -->
+                <div id="view-dashboard-employee" class="view">
+                    <div class="stats-grid">
+                        <div class="stat-card glass-panel">
+                            <i class="ri-checkbox-circle-line stat-icon text-success"></i>
+                            <div class="stat-details">
+                                <h3>Готово</h3>
+                                <div class="stat-value" id="emp-stat-done">0</div>
+                            </div>
+                        </div>
+                        <div class="stat-card glass-panel">
+                            <i class="ri-time-line stat-icon text-warning"></i>
+                            <div class="stat-details">
+                                <h3>В работе</h3>
+                                <div class="stat-value" id="emp-stat-in-progress">0</div>
+                            </div>
+                        </div>
+                        <div class="stat-card glass-panel">
+                            <i class="ri-alert-line stat-icon text-danger"></i>
+                            <div class="stat-details">
+                                <h3>Критичные</h3>
+                                <div class="stat-value" id="emp-stat-critical">0</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <h2 class="section-heading">Моя Канбан-доска</h2>
+                    <div class="kanban-board" id="emp-kanban">
+                        <!-- Columns will be injected by JS -->
+                    </div>
+                </div>
+
+                <!-- Dashboard View (Manager) -->
+                <div id="view-dashboard-manager" class="view">
+                    <h2 class="section-heading">Статус Команды</h2>
+                    <div class="team-grid" id="mgr-team-grid">
+                        <!-- Team cards injected by JS -->
+                    </div>
+
+                    <h2 class="section-heading mt-4">Все Задачи (Обзор)</h2>
+                    <div class="kanban-board" id="mgr-kanban">
+                        <!-- Columns filled with ALL tasks -->
+                    </div>
+                </div>
+
+                <!-- Settings View (Manager Only) -->
+                <div id="view-settings" class="view">
+                    <h2 class="section-heading">Управление Командой</h2>
+                    <div class="settings-panel glass-panel" style="margin-bottom: 2rem;">
+                        <form id="form-add-user" class="form-row" style="align-items:flex-end; flex-wrap: wrap; gap: 1rem;">
+                            <div class="form-group" style="margin-bottom:0; flex: 2; min-width: 150px;">
+                                <label>Имя сотрудника</label>
+                                <input type="text" id="new-user-name" required placeholder="Имя Фамилия">
+                            </div>
+                            <div class="form-group" style="margin-bottom:0; flex: 1; min-width: 120px;">
+                                <label>Логин</label>
+                                <input type="text" id="new-user-login" required placeholder="login">
+                            </div>
+                            <div class="form-group" style="margin-bottom:0; flex: 1; min-width: 120px;">
+                                <label>Пароль</label>
+                                <input type="password" id="new-user-password" required placeholder="******">
+                            </div>
+                            <div class="form-group" style="margin-bottom:0; flex: 1; min-width: 100px;">
+                                <label>Роль</label>
+                                <select id="new-user-role" required>
+                                    <option value="employee">Сотрудник</option>
+                                    <option value="manager">Руководитель</option>
+                                </select>
+                            </div>
+                            <div class="form-group" style="margin-bottom:0; flex: 1; min-width: 100px;">
+                                <button type="submit" class="btn btn-primary" style="width:100%; justify-content:center;">Создать</button>
+                            </div>
+                        </form>
+                        <p id="user-error" class="text-danger" style="display:none; font-size: 0.85rem; margin-top: 1rem;"></p>
+                        
+                        <div class="types-list" style="margin-top: 1.5rem;" id="users-list">
+                            <!-- Injected by JS -->
+                        </div>
+                    </div>
+
+                    <h2 class="section-heading">Справочник "Типы задач"</h2>
+                    <div class="settings-panel glass-panel">
+                        <form id="form-add-type" class="form-row" style="align-items:flex-end;">
+                            <div class="form-group" style="margin-bottom:0; flex: 2;">
+                                <label>Новый тип задачи</label>
+                                <input type="text" id="new-type-input" required placeholder="Например: Встреча">
+                            </div>
+                            <div class="form-group" style="margin-bottom:0; flex: 1;">
+                                <button type="submit" class="btn btn-primary" style="width:100%; justify-content:center;">Добавить</button>
+                            </div>
+                        </form>
+                        
+                        <div class="types-list mt-4" id="types-list">
+                            <!-- Injected by JS -->
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </main>
+    </div>
+
+    <!-- Task Modal -->
+    <div id="task-modal" class="modal-overlay hidden">
+        <div class="modal-card glass-panel">
+            <header class="modal-header">
+                <h2 id="modal-title">Новая задача</h2>
+                <button class="icon-btn modal-close" id="btn-close-modal"><i class="ri-close-line"></i></button>
+            </header>
+            <div class="modal-body">
+                <form id="task-form">
+                    <input type="hidden" id="task-id">
+                    
+                    <div class="form-group">
+                        <label>Название задачи</label>
+                        <input type="text" id="task-title" placeholder="Краткое и понятное название" required>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Статус</label>
+                            <select id="task-status">
+                                <option value="open">Открыта</option>
+                                <option value="in-progress">В работе</option>
+                                <option value="review">На проверке</option>
+                                <option value="done">Готово</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Тип задачи</label>
+                            <select id="task-type" required>
+                                <!-- Injected securely -->
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Приоритет</label>
+                            <select id="task-priority">
+                                <option value="low">Низкий</option>
+                                <option value="medium" selected>Средний</option>
+                                <option value="high">Высокий</option>
+                                <option value="critical">Критичный</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Исполнитель</label>
+                            <select id="task-assignee">
+                                <!-- Users injected securely -->
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Дедлайн</label>
+                            <input type="date" id="task-deadline">
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Описание</label>
+                        <textarea id="task-description" rows="3" placeholder="Детали задачи, ссылки на документы..."></textarea>
+                    </div>
+
+                    <div class="form-row time-tracking glass-panel-inner">
+                        <div class="form-group">
+                            <label>План (часов)</label>
+                            <input type="number" id="task-plan-time" min="0" step="0.5" placeholder="0">
+                        </div>
+                        <div class="form-group">
+                            <label>Фактически потрачено (часов)</label>
+                            <input type="number" id="task-fact-time" min="0" step="0.5" placeholder="0">
+                        </div>
+                    </div>
+
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" id="btn-cancel-task">Отмена</button>
+                        <button type="submit" class="btn btn-primary" id="btn-save-task">Сохранить</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
