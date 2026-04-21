@@ -120,14 +120,42 @@
 
                 <!-- Dashboard View (Manager) -->
                 <div id="view-dashboard-manager" class="view">
-                    <h2 class="section-heading">Статус Команды</h2>
-                    <div class="team-grid" id="mgr-team-grid">
-                        <!-- Team cards injected by JS -->
+                    <h2 class="section-heading">Сводка по времени</h2>
+                    <div class="glass-panel" style="margin-bottom: 2rem; padding: 1rem;">
+                         <table style="width: 100%; text-align: left; border-collapse: collapse;">
+                             <thead>
+                                 <tr>
+                                     <th style="padding: 0.5rem; border-bottom: 1px solid var(--border-color);">Сотрудник</th>
+                                     <th style="padding: 0.5rem; border-bottom: 1px solid var(--border-color);">Активных задач</th>
+                                     <th style="padding: 0.5rem; border-bottom: 1px solid var(--border-color);">Запланировано (ч)</th>
+                                     <th style="padding: 0.5rem; border-bottom: 1px solid var(--border-color);">Потрачено факт (ч)</th>
+                                 </tr>
+                             </thead>
+                             <tbody id="mgr-time-summary-tbody">
+                                 <!-- Injected by JS -->
+                             </tbody>
+                         </table>
                     </div>
 
-                    <h2 class="section-heading mt-4">Все Задачи (Обзор)</h2>
+                    <div style="display: flex; justify-content: space-between; align-items: center;" class="section-heading mt-4">
+                        <h2 style="margin: 0;">Все Задачи (Обзор)</h2>
+                        <div style="display: flex; align-items: center; gap: 10px;">
+                            <label for="mgr-emp-filter" style="margin: 0; color: var(--text-muted);">Фильтр по сотруднику:</label>
+                            <select id="mgr-emp-filter" style="padding: 0.5rem; border-radius: var(--radius-sm); border: 1px solid var(--border-color); background: var(--bg-dark); color: var(--text-base);">
+                                <option value="all">Все сотрудники</option>
+                            </select>
+                        </div>
+                    </div>
                     <div class="kanban-board" id="mgr-kanban">
-                        <!-- Columns filled with ALL tasks -->
+                        <!-- Columns filled with tasks -->
+                    </div>
+                </div>
+
+                <!-- Team View (Manager) -->
+                <div id="view-team" class="view">
+                    <h2 class="section-heading">Загрузка команды</h2>
+                    <div class="team-grid" id="mgr-team-grid">
+                        <!-- Team cards injected by JS -->
                     </div>
                 </div>
 
@@ -237,6 +265,10 @@
                             <select id="task-assignee">
                                 <!-- Users injected securely -->
                             </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Дата начала</label>
+                            <input type="date" id="task-start-date" disabled style="opacity: 0.7; cursor: not-allowed; background: rgba(0,0,0,0.2);">
                         </div>
                         <div class="form-group">
                             <label>Дедлайн</label>

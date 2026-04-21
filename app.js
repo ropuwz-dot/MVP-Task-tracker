@@ -36,6 +36,9 @@ const els = {
     empStatCritical: document.getElementById('emp-stat-critical'),
     
     mgrView: document.getElementById('view-dashboard-manager'),
+    mgrTimeSummaryTbody: document.getElementById('mgr-time-summary-tbody'),
+    mgrEmpFilter: document.getElementById('mgr-emp-filter'),
+    viewTeam: document.getElementById('view-team'),
     mgrTeamGrid: document.getElementById('mgr-team-grid'),
     mgrKanban: document.getElementById('mgr-kanban'),
     navTeam: document.getElementById('nav-team'),
@@ -65,6 +68,7 @@ const els = {
     fPriority: document.getElementById('task-priority'),
     fType: document.getElementById('task-type'),
     fAssignee: document.getElementById('task-assignee'),
+    fStartDate: document.getElementById('task-start-date'),
     fDeadline: document.getElementById('task-deadline'),
     fDesc: document.getElementById('task-description'),
     fPlan: document.getElementById('task-plan-time'),
@@ -109,6 +113,9 @@ function bindEvents() {
     els.modalForm.addEventListener('submit', handleTaskSave);
     els.formAddType.addEventListener('submit', handleAddType);
     els.formAddUser.addEventListener('submit', handleAddUser);
+    if (els.mgrEmpFilter) {
+        els.mgrEmpFilter.addEventListener('change', renderManagerKanbanOnly);
+    }
 }
 
 // --- Auth flows ---
@@ -202,8 +209,8 @@ function switchView(viewName, forceUpdate = false) {
         els.btnCreateTask.style.display = 'none';
         els.pageTitle.innerText = 'Команда';
         els.pageSubtitle.innerText = 'Управление загрузкой и статусом на сегодня';
-        els.mgrView.classList.add('section-active');
-        renderManagerDashboard();
+        els.viewTeam.classList.add('section-active');
+        renderTeamView();
     } else if (viewName === 'settings') {
         els.btnCreateTask.style.display = 'none';
         els.pageTitle.innerText = 'Настройки';
@@ -226,6 +233,54 @@ function renderEmployeeDashboard() {
 }
 
 function renderManagerDashboard() {
+    els.mgrTimeSummaryTbody.innerHTML = '';
+    
+    // Save current filter value to restore it
+    const currentFilter = els.mgrEmpFilter.value;
+    els.mgrEmpFilter.innerHTML = '<option value="all">Все сотрудники</option>';
+
+    state.users.forEach(u => {
+        if (u.role === 'manager') return;
+        
+        // Add to filter
+        const opt = document.createElement('option');
+        opt.value = u.id;
+        opt.innerText = u.name;
+        els.mgrEmpFilter.appendChild(opt);
+
+        // Compute summary
+        const tasks = state.tasks.filter(t => t.assignee_id === u.id);
+        const activeTasks = tasks.filter(t => t.status !== 'done');
+        const planTotal = tasks.reduce((sum, t) => sum + (parseFloat(t.plan_hours) || 0), 0);
+        const factTotal = tasks.reduce((sum, t) => sum + (parseFloat(t.fact_hours) || 0), 0);
+
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+            <td style="padding: 0.5rem; border-bottom: 1px solid var(--border-color);">${u.name}</td>
+            <td style="padding: 0.5rem; border-bottom: 1px solid var(--border-color); text-align: center;">${activeTasks.length}</td>
+            <td style="padding: 0.5rem; border-bottom: 1px solid var(--border-color); text-align: center;">${planTotal}</td>
+            <td style="padding: 0.5rem; border-bottom: 1px solid var(--border-color); text-align: center;">${factTotal}</td>
+        `;
+        els.mgrTimeSummaryTbody.appendChild(tr);
+    });
+    
+    if (currentFilter && Array.from(els.mgrEmpFilter.options).some(o => o.value === currentFilter)) {
+        els.mgrEmpFilter.value = currentFilter;
+    }
+
+    renderManagerKanbanOnly();
+}
+
+function renderManagerKanbanOnly() {
+    const filterId = els.mgrEmpFilter.value;
+    let filteredTasks = state.tasks;
+    if (filterId !== 'all') {
+        filteredTasks = filteredTasks.filter(t => t.assignee_id === parseInt(filterId));
+    }
+    renderKanban(filteredTasks, els.mgrKanban);
+}
+
+function renderTeamView() {
     els.mgrTeamGrid.innerHTML = '';
     state.users.forEach(u => {
         if (u.role === 'manager') return;
@@ -248,8 +303,6 @@ function renderManagerDashboard() {
         `;
         els.mgrTeamGrid.appendChild(card);
     });
-
-    renderKanban(state.tasks, els.mgrKanban);
 }
 
 function renderKanban(tasks, containerEl) {
@@ -400,6 +453,7 @@ function openModal(task = null) {
         els.fStatus.value = task.status;
         els.fPriority.value = task.priority;
         els.fType.value = task.type_id || '';
+        els.fStartDate.value = task.start_date || '';
         els.fDeadline.value = task.deadline || '';
         els.fPlan.value = task.plan_hours || '';
         els.fFact.value = task.fact_hours || '';
@@ -409,6 +463,7 @@ function openModal(task = null) {
         els.modalForm.reset();
         els.fId.value = '';
         els.fAssignee.value = state.currentUser.id;
+        els.fStartDate.value = new Date().toISOString().split('T')[0];
     }
 
     if (state.currentUser.role !== 'manager') {
@@ -441,6 +496,7 @@ async function handleTaskSave(e) {
         priority: els.fPriority.value,
         type_id: parseInt(els.fType.value),
         assignee_id: parseInt(els.fAssignee.value),
+        start_date: els.fStartDate.value,
         deadline: els.fDeadline.value,
         plan_hours: parseFloat(els.fPlan.value) || 0,
         fact_hours: parseFloat(els.fFact.value) || 0,
