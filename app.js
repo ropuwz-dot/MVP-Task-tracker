@@ -280,6 +280,47 @@ function renderManagerKanbanOnly() {
     renderKanban(filteredTasks, els.mgrKanban);
 }
 
+function handleDragStart(e, taskId) {
+    e.dataTransfer.setData('text/plain', taskId);
+    e.dataTransfer.effectAllowed = 'move';
+}
+
+function handleDragOver(e) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+}
+
+async function handleDrop(e, newStatus) {
+    e.preventDefault();
+    const taskId = e.dataTransfer.getData('text/plain');
+    if (!taskId) return;
+    
+    const task = state.tasks.find(t => t.id == taskId);
+    if (!task || task.status === newStatus) return;
+    
+    task.status = newStatus;
+    switchView(state.currentView, true);
+    
+    const taskData = {
+        title: task.title,
+        description: task.description,
+        status: task.status,
+        priority: task.priority,
+        type_id: task.type_id,
+        assignee_id: task.assignee_id,
+        start_date: task.start_date,
+        deadline: task.deadline,
+        plan_hours: task.plan_hours,
+        fact_hours: task.fact_hours,
+    };
+    
+    const res = await apiPut(`/api/tasks/${task.id}`, taskData);
+    if (res.error) {
+        await loadData();
+        switchView(state.currentView, true);
+    }
+}
+
 function renderTeamView() {
     els.mgrTeamGrid.innerHTML = '';
     state.users.forEach(u => {
@@ -292,6 +333,12 @@ function renderTeamView() {
         
         const card = document.createElement('div');
         card.className = 'team-member-card glass-panel';
+        card.style.cursor = 'pointer';
+        card.onclick = () => {
+            switchView('dashboard');
+            els.mgrEmpFilter.value = u.id;
+            renderManagerKanbanOnly();
+        };
         card.innerHTML = `
             <div class="avatar">${u.avatar}</div>
             <div class="team-member-info">
@@ -328,6 +375,9 @@ function renderKanban(tasks, containerEl) {
         `;
         
         const cardsContainer = columnHtml.querySelector('.kanban-cards');
+        cardsContainer.ondragover = handleDragOver;
+        cardsContainer.ondrop = (e) => handleDrop(e, col.id);
+
         colTasks.forEach(task => {
             const priority = priorityDict[task.priority];
             const assignee = state.users.find(u => u.id === task.assignee_id);
@@ -335,6 +385,8 @@ function renderKanban(tasks, containerEl) {
             
             const card = document.createElement('div');
             card.className = 'task-card';
+            card.draggable = true;
+            card.ondragstart = (e) => handleDragStart(e, task.id);
             card.onclick = () => openModal(task);
             card.innerHTML = `
                 <div class="task-labels">
