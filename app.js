@@ -78,8 +78,8 @@ const els = {
     btnModalBack: document.getElementById('btn-modal-back'),
     subtasksSection: document.getElementById('subtasks-section'),
     subtasksList: document.getElementById('subtasks-list'),
-    newSubtaskTitle: document.getElementById('new-subtask-title'),
-    btnAddSubtask: document.getElementById('btn-add-subtask')
+    btnAddSubtaskFull: document.getElementById('btn-add-subtask-full'),
+    fParentSelect: document.getElementById('task-parent-select')
 };
 
 const priorityDict = {
@@ -119,7 +119,12 @@ function bindEvents() {
     els.modalForm.addEventListener('submit', handleTaskSave);
     els.formAddType.addEventListener('submit', handleAddType);
     els.formAddUser.addEventListener('submit', handleAddUser);
-    if (els.btnAddSubtask) els.btnAddSubtask.addEventListener('click', handleAddSubtask);
+    if (els.btnAddSubtaskFull) {
+        els.btnAddSubtaskFull.addEventListener('click', () => {
+             const parentId = els.fId.value;
+             if (parentId) openModal(null, parseInt(parentId));
+        });
+    }
     if (els.mgrEmpFilter) {
         els.mgrEmpFilter.addEventListener('change', renderManagerKanbanOnly);
     }
@@ -370,7 +375,7 @@ function renderKanban(tasks, containerEl) {
     containerEl.innerHTML = '';
 
     columns.forEach(col => {
-        const colTasks = tasks.filter(t => t.status === col.id && !t.parent_task_id);
+        const colTasks = tasks.filter(t => t.status === col.id);
         const columnHtml = document.createElement('div');
         columnHtml.className = 'kanban-column';
         columnHtml.innerHTML = `
@@ -396,12 +401,16 @@ function renderKanban(tasks, containerEl) {
                 ? `<span class="label" style="background: rgba(255,255,255,0.1);"><i class="ri-node-tree"></i> ${subtasksCompleted}/${subtasks.length}</span>` 
                 : '';
             
+            const parentContext = task.parent_task_id ? state.tasks.find(p => p.id === task.parent_task_id) : null;
+            const parentContextHtml = parentContext ? `<div style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 0.4rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">↳ Род: ${parentContext.title}</div>` : '';
+
             const card = document.createElement('div');
             card.className = 'task-card';
             card.draggable = true;
             card.ondragstart = (e) => handleDragStart(e, task.id);
             card.onclick = () => openModal(task);
             card.innerHTML = `
+                ${parentContextHtml}
                 <div class="task-labels">
                     <span class="label ${priority.class}">${priority.label}</span>
                     ${type ? `<span class="label type-label">${type.name}</span>` : ''}
@@ -497,7 +506,7 @@ async function handleAddUser(e) {
     }
 }
 
-function openModal(task = null) {
+function openModal(task = null, forceParentId = null) {
     els.modal.classList.remove('hidden');
     
     // Fill Dropdowns
@@ -510,6 +519,15 @@ function openModal(task = null) {
     state.taskTypes.filter(t => t.is_active || (task && task.type_id === t.id)).forEach(t => {
         els.fType.appendChild(new Option(t.name, t.id));
     });
+    
+    if (els.fParentSelect) {
+        els.fParentSelect.innerHTML = '<option value="">Нет (Корневая задача)</option>';
+        state.tasks.forEach(t => {
+            if (!task || t.id !== task.id) {
+                els.fParentSelect.appendChild(new Option(t.title, t.id));
+            }
+        });
+    }
 
     if (task) {
         els.modalTitle.innerText = task.parent_task_id ? 'Редактировать подзадачу' : 'Редактировать задачу';
@@ -517,6 +535,7 @@ function openModal(task = null) {
         els.fTitle.value = task.title;
         els.fDesc.value = task.description || '';
         els.fStatus.value = task.status;
+        if (els.fParentSelect) els.fParentSelect.value = task.parent_task_id || '';
         
         if (task.parent_task_id) {
             els.btnModalBack.classList.remove('hidden');
@@ -525,12 +544,13 @@ function openModal(task = null) {
                 if (parent) openModal(parent);
                 else closeModal();
             };
-            if(els.subtasksSection) els.subtasksSection.classList.add('hidden');
         } else {
             els.btnModalBack.classList.add('hidden');
-            if(els.subtasksSection) els.subtasksSection.classList.remove('hidden');
-            renderSubtasks(task.id);
         }
+        
+        if(els.subtasksSection) els.subtasksSection.classList.remove('hidden');
+        renderSubtasks(task.id);
+        
         els.fPriority.value = task.priority;
         els.fType.value = task.type_id || '';
         els.fStartDate.value = task.start_date || '';
@@ -539,13 +559,23 @@ function openModal(task = null) {
         els.fFact.value = task.fact_hours || '';
         els.fAssignee.value = task.assignee_id;
     } else {
-        els.modalTitle.innerText = 'Новая задача';
+        els.modalTitle.innerText = forceParentId ? 'Новая подзадача' : 'Новая задача';
         els.modalForm.reset();
         els.fId.value = '';
         els.fAssignee.value = state.currentUser.id;
         els.fStartDate.value = new Date().toISOString().split('T')[0];
+        if (els.fParentSelect) els.fParentSelect.value = forceParentId || '';
         
-        if(els.btnModalBack) els.btnModalBack.classList.add('hidden');
+        if (forceParentId) {
+            els.btnModalBack.classList.remove('hidden');
+            els.btnModalBack.onclick = () => {
+                const parent = state.tasks.find(t => t.id === forceParentId);
+                if (parent) openModal(parent);
+                else closeModal();
+            };
+        } else {
+            if(els.btnModalBack) els.btnModalBack.classList.add('hidden');
+        }
         if(els.subtasksSection) els.subtasksSection.classList.add('hidden');
     }
 
@@ -573,7 +603,10 @@ function closeModal() {
 async function handleTaskSave(e) {
     e.preventDefault();
     const editId = els.fId.value;
-    const existingTask = editId ? state.tasks.find(t => t.id == editId) : null;
+    
+    // Attempt parse parent ID
+    const parentVal = els.fParentSelect ? els.fParentSelect.value : '';
+    const newParentId = parentVal ? parseInt(parentVal) : null;
 
     const taskData = {
         title: els.fTitle.value,
@@ -586,13 +619,19 @@ async function handleTaskSave(e) {
         deadline: els.fDeadline.value,
         plan_hours: parseFloat(els.fPlan.value) || 0,
         fact_hours: parseFloat(els.fFact.value) || 0,
-        parent_task_id: existingTask ? existingTask.parent_task_id : null
+        parent_task_id: newParentId
     };
 
+    let res;
     if (editId) {
-        await apiPut(`/api/tasks/${editId}`, taskData);
+        res = await apiPut(`/api/tasks/${editId}`, taskData);
     } else {
-        await apiPost('/api/tasks', taskData);
+        res = await apiPost('/api/tasks', taskData);
+    }
+    
+    if (res && res.error) {
+        alert('Ошибка сохранения: ' + res.error);
+        return;
     }
 
     await loadData();
@@ -613,10 +652,7 @@ function renderSubtasks(parentId) {
     subtasks.forEach(st => {
         const el = document.createElement('div');
         el.className = 'glass-panel';
-        el.style.padding = '0.5rem';
-        el.style.display = 'flex';
-        el.style.justifyContent = 'space-between';
-        el.style.alignItems = 'center';
+        el.style.padding = '0.75rem';
         el.style.cursor = 'pointer';
         el.style.transition = 'all 0.2s';
         
@@ -624,71 +660,29 @@ function renderSubtasks(parentId) {
         el.onmouseover = () => el.style.background = 'rgba(255,255,255,0.08)';
         el.onmouseout = () => el.style.background = '';
         
-        let statusIcon = '<i class="ri-circle-line text-warning"></i>';
-        if (st.status === 'done') statusIcon = '<i class="ri-checkbox-circle-fill text-success"></i>';
-        else if (st.status === 'review') statusIcon = '<i class="ri-eye-line text-info"></i>';
+        const priority = priorityDict[st.priority];
+        const statusMap = {
+            'open': 'Открыта',
+            'in-progress': 'В работе',
+            'review': 'На проверке',
+            'done': 'Готово'
+        };
+        const statusLabel = statusMap[st.status] || st.status;
+        const assignee = state.users.find(u => u.id === st.assignee_id);
         
         el.innerHTML = `
-            <div style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.9rem;">
-                ${statusIcon}
-                <span style="${st.status === 'done' ? 'text-decoration: line-through; opacity: 0.7;' : ''}">${st.title}</span>
+            <div style="font-size: 0.95rem; font-weight: 500; ${st.status === 'done' ? 'text-decoration: line-through; opacity: 0.7;' : ''} margin-bottom: 0.5rem;">${st.title}</div>
+            <div class="task-labels" style="display: flex; gap: 0.5rem; font-size: 0.75rem; align-items: center;">
+                <span class="label ${priority.class}">${priority.label}</span>
+                <span class="label" style="background: rgba(255,255,255,0.1); color: #fff;">${statusLabel}</span>
+                <div style="margin-left: auto; color: var(--text-muted); display: flex; align-items: center; gap: 0.3rem;">
+                   <div class="mini-avatar" style="width:18px;height:18px;font-size:0.6rem;">${assignee ? assignee.avatar : '?'}</div>
+                   <span>${st.plan_hours || 0}ч</span>
+                </div>
             </div>
-            <button type="button" class="icon-btn" onclick="event.stopPropagation(); window.toggleSubtaskStatus(${st.id}, '${st.status}')" style="padding: 0.2rem;">
-                <i class="ri-check-line"></i>
-            </button>
         `;
         els.subtasksList.appendChild(el);
     });
-}
-
-window.toggleSubtaskStatus = async (id, currentStatus) => {
-    const st = state.tasks.find(t => t.id === id);
-    if (!st) return;
-    const newStatus = currentStatus === 'done' ? 'open' : 'done';
-    
-    const taskData = { ...st, status: newStatus };
-    const res = await apiPut(`/api/tasks/${id}`, taskData);
-    if (!res.error) {
-        await loadData();
-        const parentId = els.fId.value;
-        if (parentId) renderSubtasks(parseInt(parentId));
-        switchView(state.currentView, true);
-    }
-}
-
-async function handleAddSubtask() {
-    const title = els.newSubtaskTitle.value.trim();
-    const parentId = parseInt(els.fId.value);
-    if (!title || !parentId) return;
-    
-    const parent = state.tasks.find(t => t.id === parentId);
-    if (!parent) return;
-
-    els.btnAddSubtask.disabled = true;
-    
-    const subtaskData = {
-        title: title,
-        description: '',
-        status: 'open',
-        priority: parent.priority,
-        type_id: parent.type_id,
-        assignee_id: parent.assignee_id,
-        start_date: new Date().toISOString().split('T')[0],
-        deadline: '',
-        plan_hours: 0,
-        fact_hours: 0,
-        parent_task_id: parent.id
-    };
-    
-    const res = await apiPost('/api/tasks', subtaskData);
-    els.btnAddSubtask.disabled = false;
-    
-    if (!res.error) {
-        els.newSubtaskTitle.value = '';
-        await loadData();
-        renderSubtasks(parent.id);
-        switchView(state.currentView, true);
-    }
 }
 
 // --- API Helpers ---

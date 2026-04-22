@@ -180,17 +180,38 @@ app.put('/api/task_types/:id/toggle', requireAuth, requireManager, (req, res) =>
 
 // Tasks
 app.get('/api/tasks', requireAuth, (req, res) => {
-    let query = `SELECT * FROM tasks`;
-    let params = [];
-    if (req.session.role !== 'manager') {
-        query += ` WHERE assignee_id = ? 
-                   OR parent_task_id IN (SELECT id FROM tasks WHERE assignee_id = ?)
-                   OR id IN (SELECT parent_task_id FROM tasks WHERE assignee_id = ?)`;
-        params.push(req.session.userId, req.session.userId, req.session.userId);
-    }
-    db.all(query, params, (err, rows) => {
+    db.all(`SELECT * FROM tasks`, [], (err, rows) => {
         if (err) return res.status(500).json({ error: err.message });
-        res.json(rows);
+        
+        if (req.session.role === 'manager') {
+            return res.json(rows);
+        }
+
+        const userId = req.session.userId;
+        const visibleIds = new Set(rows.filter(t => t.assignee_id === userId).map(t => t.id));
+        
+        // Add ancestors
+        for (let id of Array.from(visibleIds)) {
+            let curr = rows.find(r => r.id === id);
+            while (curr && curr.parent_task_id) {
+                visibleIds.add(curr.parent_task_id);
+                curr = rows.find(r => r.id === curr.parent_task_id);
+            }
+        }
+        
+        // Add descendants
+        let added;
+        do {
+            added = false;
+            for (let r of rows) {
+                if (r.parent_task_id && visibleIds.has(r.parent_task_id) && !visibleIds.has(r.id)) {
+                    visibleIds.add(r.id);
+                    added = true;
+                }
+            }
+        } while(added);
+        
+        res.json(rows.filter(t => visibleIds.has(t.id)));
     });
 });
 
@@ -209,16 +230,42 @@ app.post('/api/tasks', requireAuth, (req, res) => {
 
 app.put('/api/tasks/:id', requireAuth, (req, res) => {
     const { title, description, status, priority, type_id, assignee_id, start_date, deadline, plan_hours, fact_hours, parent_task_id } = req.body;
-    
-    // For MVP, simple blind update. Real world needs role checking here too.
-    const sd = start_date || new Date().toISOString().split('T')[0];
-    db.run(`UPDATE tasks SET 
-        title=?, description=?, status=?, priority=?, type_id=?, assignee_id=?, start_date=?, deadline=?, plan_hours=?, fact_hours=?, parent_task_id=? 
-        WHERE id=?`,
-    [title, description, status, priority, type_id, assignee_id, sd, deadline, plan_hours || 0, fact_hours || 0, parent_task_id || null, req.params.id], 
-    function(err) {
-        if (err) return res.status(400).json({ error: err.message });
-        res.json({ success: true });
+    const taskId = parseInt(req.params.id);
+    const parentId = parent_task_id ? parseInt(parent_task_id) : null;
+
+    if (parentId === taskId) {
+        return res.status(400).json({ error: 'Задача не может быть родителем самой себя' });
+    }
+
+    // Check cycles
+    db.all(`SELECT id, parent_task_id FROM tasks`, [], (err, rows) => {
+        if (err) return res.status(500).json({ error: err.message });
+        
+        if (parentId) {
+            let curr = parentId;
+            let cycle = false;
+            while (curr) {
+                if (curr === taskId) {
+                    cycle = true;
+                    break;
+                }
+                let pRow = rows.find(r => r.id === curr);
+                curr = pRow ? pRow.parent_task_id : null;
+            }
+            if (cycle) {
+                return res.status(400).json({ error: 'Обнаружена циклическая зависимость' });
+            }
+        }
+
+        const sd = start_date || new Date().toISOString().split('T')[0];
+        db.run(`UPDATE tasks SET 
+            title=?, description=?, status=?, priority=?, type_id=?, assignee_id=?, start_date=?, deadline=?, plan_hours=?, fact_hours=?, parent_task_id=? 
+            WHERE id=?`,
+        [title, description, status, priority, type_id, assignee_id, sd, deadline, plan_hours || 0, fact_hours || 0, parentId, taskId], 
+        function(errUpd) {
+            if (errUpd) return res.status(400).json({ error: errUpd.message });
+            res.json({ success: true });
+        });
     });
 });
 
