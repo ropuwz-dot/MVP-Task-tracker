@@ -58,6 +58,7 @@ const els = {
     usersList: document.getElementById('users-list'),
 
     modal: document.getElementById('task-modal'),
+    modalBreadcrumbs: document.getElementById('modal-breadcrumbs'),
     modalForm: document.getElementById('task-form'),
     btnCloseModal: document.getElementById('btn-close-modal'),
     btnCancelTask: document.getElementById('btn-cancel-task'),
@@ -401,8 +402,17 @@ function renderKanban(tasks, containerEl) {
                 ? `<span class="label" style="background: rgba(255,255,255,0.1);"><i class="ri-node-tree"></i> ${subtasksCompleted}/${subtasks.length}</span>` 
                 : '';
             
-            const parentContext = task.parent_task_id ? state.tasks.find(p => p.id === task.parent_task_id) : null;
-            const parentContextHtml = parentContext ? `<div style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 0.4rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">↳ Род: ${parentContext.title}</div>` : '';
+            let parentContextHtml = '';
+            if (task.parent_task_id) {
+                const path = getTaskPath(task.id);
+                if (path.length > 1) {
+                    const rootTask = path[0];
+                    if (rootTask.id !== task.id) {
+                        const pathStr = path.slice(0, path.length - 1).map(p => p.title).join(' / ');
+                        parentContextHtml = `<div title="${pathStr}" onclick="event.stopPropagation(); window.openModalById(${rootTask.id})" style="font-size: 0.75rem; color: var(--primary-color); margin-bottom: 0.4rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; transition: opacity 0.2s;" onmouseover="this.style.opacity=0.8" onmouseout="this.style.opacity=1"><i class="ri-node-tree"></i> ${rootTask.title}</div>`;
+                    }
+                }
+            }
 
             const card = document.createElement('div');
             card.className = 'task-card';
@@ -538,15 +548,12 @@ function openModal(task = null, forceParentId = null) {
         if (els.fParentSelect) els.fParentSelect.value = task.parent_task_id || '';
         
         if (task.parent_task_id) {
-            els.btnModalBack.classList.remove('hidden');
-            els.btnModalBack.onclick = () => {
-                const parent = state.tasks.find(t => t.id === task.parent_task_id);
-                if (parent) openModal(parent);
-                else closeModal();
-            };
+            els.btnModalBack.classList.add('hidden'); // replaced by breadcrumbs
         } else {
             els.btnModalBack.classList.add('hidden');
         }
+        
+        renderBreadcrumbs(task.id, false);
         
         if(els.subtasksSection) els.subtasksSection.classList.remove('hidden');
         renderSubtasks(task.id);
@@ -566,16 +573,14 @@ function openModal(task = null, forceParentId = null) {
         els.fStartDate.value = new Date().toISOString().split('T')[0];
         if (els.fParentSelect) els.fParentSelect.value = forceParentId || '';
         
+        if(els.btnModalBack) els.btnModalBack.classList.add('hidden'); // replaced by breadcrumbs
+        
         if (forceParentId) {
-            els.btnModalBack.classList.remove('hidden');
-            els.btnModalBack.onclick = () => {
-                const parent = state.tasks.find(t => t.id === forceParentId);
-                if (parent) openModal(parent);
-                else closeModal();
-            };
+            renderBreadcrumbs(forceParentId, true);
         } else {
-            if(els.btnModalBack) els.btnModalBack.classList.add('hidden');
+            renderBreadcrumbs(null, false);
         }
+        
         if(els.subtasksSection) els.subtasksSection.classList.add('hidden');
     }
 
@@ -718,6 +723,89 @@ async function apiPut(endpoint, body) {
         if (!r.ok) return { error: resData.error || 'Server error' };
         return resData;
     } catch (e) { return { error: 'Network error' }; }
+}
+
+function getTaskPath(taskId) {
+    const path = [];
+    let current = state.tasks.find(t => t.id === taskId);
+    const visited = new Set();
+    while (current && !visited.has(current.id)) {
+        visited.add(current.id);
+        path.unshift(current);
+        if (current.parent_task_id) {
+            current = state.tasks.find(t => t.id === current.parent_task_id);
+        } else {
+            current = null;
+        }
+    }
+    return path;
+}
+
+window.openModalById = function(id) {
+    const t = state.tasks.find(x => x.id === id);
+    if (t) openModal(t);
+};
+
+function renderBreadcrumbs(taskId, isNewSubtask = false) {
+    if (!els.modalBreadcrumbs) return;
+    
+    let path = [];
+    if (taskId) {
+        path = getTaskPath(taskId);
+    }
+    
+    if (path.length > (isNewSubtask ? 0 : 1)) {
+        els.modalBreadcrumbs.classList.remove('hidden');
+        els.modalBreadcrumbs.style.display = 'flex';
+        els.modalBreadcrumbs.innerHTML = '';
+        
+        const totalItems = path.length + (isNewSubtask ? 1 : 0);
+        
+        path.forEach((t, index) => {
+            const isLast = (index === totalItems - 1) && !isNewSubtask;
+            
+            const span = document.createElement('span');
+            if (isLast) {
+                span.style.color = 'var(--text-base)';
+                span.style.whiteSpace = 'nowrap';
+                span.style.fontWeight = '500';
+                span.innerText = t.title;
+            } else {
+                const a = document.createElement('a');
+                a.href = '#';
+                a.style.color = 'var(--primary-color)';
+                a.style.textDecoration = 'none';
+                a.style.whiteSpace = 'nowrap';
+                a.innerText = t.title;
+                a.onclick = (e) => {
+                    e.preventDefault();
+                    openModal(t);
+                };
+                span.appendChild(a);
+            }
+            els.modalBreadcrumbs.appendChild(span);
+            
+            if (!isLast) {
+                const sep = document.createElement('span');
+                sep.style.color = 'var(--text-muted)';
+                sep.innerHTML = '&nbsp;/&nbsp;';
+                els.modalBreadcrumbs.appendChild(sep);
+            }
+        });
+        
+        if (isNewSubtask) {
+            const curSp = document.createElement('span');
+            curSp.style.color = 'var(--text-base)';
+            curSp.style.whiteSpace = 'nowrap';
+            curSp.style.fontWeight = '500';
+            curSp.innerText = 'Новая подзадача';
+            els.modalBreadcrumbs.appendChild(curSp);
+        }
+    } else {
+        els.modalBreadcrumbs.classList.add('hidden');
+        els.modalBreadcrumbs.style.display = 'none';
+        els.modalBreadcrumbs.innerHTML = '';
+    }
 }
 
 init();
