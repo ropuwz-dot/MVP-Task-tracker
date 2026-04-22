@@ -401,7 +401,7 @@ function renderKanban(tasks, containerEl) {
             const subtasksBadge = subtasks.length > 0 
                 ? `<span class="label" style="background: rgba(255,255,255,0.1);"><i class="ri-node-tree"></i> ${subtasksCompleted}/${subtasks.length}</span>` 
                 : '';
-            
+                
             let parentContextHtml = '';
             if (task.parent_task_id) {
                 const path = getTaskPath(task.id);
@@ -409,7 +409,7 @@ function renderKanban(tasks, containerEl) {
                     const rootTask = path[0];
                     if (rootTask.id !== task.id) {
                         const pathStr = path.slice(0, path.length - 1).map(p => p.title).join(' / ');
-                        parentContextHtml = `<div title="${pathStr}" onclick="event.stopPropagation(); window.openModalById(${rootTask.id})" style="font-size: 0.75rem; color: var(--primary-color); margin-bottom: 0.4rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; transition: opacity 0.2s;" onmouseover="this.style.opacity=0.8" onmouseout="this.style.opacity=1"><i class="ri-node-tree"></i> ${rootTask.title}</div>`;
+                        parentContextHtml = `<div title="Вложено в: ${pathStr}" onclick="event.stopPropagation(); window.openModalById(${rootTask.id})" style="font-size: 0.8rem; color: var(--primary-color); margin-top: 0.2rem; margin-bottom: 0.4rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; transition: opacity 0.2s;" onmouseover="this.style.opacity=0.8" onmouseout="this.style.opacity=1"><i class="ri-corner-down-right-line"></i> Корень: ${rootTask.title}</div>`;
                     }
                 }
             }
@@ -420,14 +420,14 @@ function renderKanban(tasks, containerEl) {
             card.ondragstart = (e) => handleDragStart(e, task.id);
             card.onclick = () => openModal(task);
             card.innerHTML = `
-                ${parentContextHtml}
                 <div class="task-labels">
                     <span class="label ${priority.class}">${priority.label}</span>
                     ${type ? `<span class="label type-label">${type.name}</span>` : ''}
                     ${subtasksBadge}
                 </div>
-                <h4>${task.title}</h4>
-                <div class="task-meta">
+                <h4 style="margin-bottom: 0;">${task.title}</h4>
+                ${parentContextHtml}
+                <div class="task-meta" style="margin-top: 0.5rem;">
                     <div class="task-assignee">
                         <div class="mini-avatar">${assignee ? assignee.avatar : '?'}</div>
                         <span>План: ${task.plan_hours || 0}ч</span>
@@ -759,16 +759,20 @@ function renderBreadcrumbs(taskId, isNewSubtask = false) {
         els.modalBreadcrumbs.style.display = 'flex';
         els.modalBreadcrumbs.innerHTML = '';
         
-        const totalItems = path.length + (isNewSubtask ? 1 : 0);
+        let displayPath = [...path].reverse();
+        if (isNewSubtask) {
+            displayPath.unshift({ title: 'Новая подзадача', isFake: true });
+        }
         
-        path.forEach((t, index) => {
-            const isLast = (index === totalItems - 1) && !isNewSubtask;
+        displayPath.forEach((t, index) => {
+            const isCurrent = (index === 0);
             
             const span = document.createElement('span');
-            if (isLast) {
+            if (isCurrent) {
                 span.style.color = 'var(--text-base)';
                 span.style.whiteSpace = 'nowrap';
-                span.style.fontWeight = '500';
+                span.style.fontWeight = '600';
+                span.style.fontSize = '0.95rem';
                 span.innerText = t.title;
             } else {
                 const a = document.createElement('a');
@@ -779,28 +783,19 @@ function renderBreadcrumbs(taskId, isNewSubtask = false) {
                 a.innerText = t.title;
                 a.onclick = (e) => {
                     e.preventDefault();
-                    openModal(t);
+                    if (!t.isFake) openModal(t);
                 };
                 span.appendChild(a);
             }
             els.modalBreadcrumbs.appendChild(span);
             
-            if (!isLast) {
+            if (index < displayPath.length - 1) {
                 const sep = document.createElement('span');
                 sep.style.color = 'var(--text-muted)';
-                sep.innerHTML = '&nbsp;/&nbsp;';
+                sep.innerHTML = '&nbsp;<i class="ri-arrow-left-s-line"></i>&nbsp;';
                 els.modalBreadcrumbs.appendChild(sep);
             }
         });
-        
-        if (isNewSubtask) {
-            const curSp = document.createElement('span');
-            curSp.style.color = 'var(--text-base)';
-            curSp.style.whiteSpace = 'nowrap';
-            curSp.style.fontWeight = '500';
-            curSp.innerText = 'Новая подзадача';
-            els.modalBreadcrumbs.appendChild(curSp);
-        }
     } else {
         els.modalBreadcrumbs.classList.add('hidden');
         els.modalBreadcrumbs.style.display = 'none';
