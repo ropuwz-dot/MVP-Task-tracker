@@ -75,6 +75,7 @@ db.serialize(async () => {
     )`);
     // Try to add column if table already exists
     db.run(`ALTER TABLE tasks ADD COLUMN start_date TEXT`, (err) => {});
+    db.run(`ALTER TABLE tasks ADD COLUMN parent_task_id INTEGER`, (err) => {});
 
     // Add default users and types if empty
     db.get("SELECT COUNT(*) as count FROM users", async (err, row) => {
@@ -182,8 +183,10 @@ app.get('/api/tasks', requireAuth, (req, res) => {
     let query = `SELECT * FROM tasks`;
     let params = [];
     if (req.session.role !== 'manager') {
-        query += ` WHERE assignee_id = ?`;
-        params.push(req.session.userId);
+        query += ` WHERE assignee_id = ? 
+                   OR parent_task_id IN (SELECT id FROM tasks WHERE assignee_id = ?)
+                   OR id IN (SELECT parent_task_id FROM tasks WHERE assignee_id = ?)`;
+        params.push(req.session.userId, req.session.userId, req.session.userId);
     }
     db.all(query, params, (err, rows) => {
         if (err) return res.status(500).json({ error: err.message });
@@ -192,27 +195,27 @@ app.get('/api/tasks', requireAuth, (req, res) => {
 });
 
 app.post('/api/tasks', requireAuth, (req, res) => {
-    const { title, description, status, priority, type_id, assignee_id, start_date, deadline, plan_hours, fact_hours } = req.body;
+    const { title, description, status, priority, type_id, assignee_id, start_date, deadline, plan_hours, fact_hours, parent_task_id } = req.body;
     
     // Employee constraints can be enforced on frontend, but safe to trust req body for MVP
     const sd = start_date || new Date().toISOString().split('T')[0];
-    db.run(`INSERT INTO tasks (title, description, status, priority, type_id, assignee_id, start_date, deadline, plan_hours, fact_hours) 
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, 
-    [title, description, status, priority, type_id, assignee_id, sd, deadline, plan_hours || 0, fact_hours || 0], function(err) {
+    db.run(`INSERT INTO tasks (title, description, status, priority, type_id, assignee_id, start_date, deadline, plan_hours, fact_hours, parent_task_id) 
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, 
+    [title, description, status, priority, type_id, assignee_id, sd, deadline, plan_hours || 0, fact_hours || 0, parent_task_id || null], function(err) {
         if (err) return res.status(400).json({ error: err.message });
         res.json({ id: this.lastID });
     });
 });
 
 app.put('/api/tasks/:id', requireAuth, (req, res) => {
-    const { title, description, status, priority, type_id, assignee_id, start_date, deadline, plan_hours, fact_hours } = req.body;
+    const { title, description, status, priority, type_id, assignee_id, start_date, deadline, plan_hours, fact_hours, parent_task_id } = req.body;
     
     // For MVP, simple blind update. Real world needs role checking here too.
     const sd = start_date || new Date().toISOString().split('T')[0];
     db.run(`UPDATE tasks SET 
-        title=?, description=?, status=?, priority=?, type_id=?, assignee_id=?, start_date=?, deadline=?, plan_hours=?, fact_hours=? 
+        title=?, description=?, status=?, priority=?, type_id=?, assignee_id=?, start_date=?, deadline=?, plan_hours=?, fact_hours=?, parent_task_id=? 
         WHERE id=?`,
-    [title, description, status, priority, type_id, assignee_id, sd, deadline, plan_hours || 0, fact_hours || 0, req.params.id], 
+    [title, description, status, priority, type_id, assignee_id, sd, deadline, plan_hours || 0, fact_hours || 0, parent_task_id || null, req.params.id], 
     function(err) {
         if (err) return res.status(400).json({ error: err.message });
         res.json({ success: true });

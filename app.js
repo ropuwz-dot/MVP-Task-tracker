@@ -73,7 +73,13 @@ const els = {
     fDesc: document.getElementById('task-description'),
     fPlan: document.getElementById('task-plan-time'),
     fFact: document.getElementById('task-fact-time'),
-    modalTitle: document.getElementById('modal-title')
+    modalTitle: document.getElementById('modal-title'),
+    
+    btnModalBack: document.getElementById('btn-modal-back'),
+    subtasksSection: document.getElementById('subtasks-section'),
+    subtasksList: document.getElementById('subtasks-list'),
+    newSubtaskTitle: document.getElementById('new-subtask-title'),
+    btnAddSubtask: document.getElementById('btn-add-subtask')
 };
 
 const priorityDict = {
@@ -113,6 +119,7 @@ function bindEvents() {
     els.modalForm.addEventListener('submit', handleTaskSave);
     els.formAddType.addEventListener('submit', handleAddType);
     els.formAddUser.addEventListener('submit', handleAddUser);
+    if (els.btnAddSubtask) els.btnAddSubtask.addEventListener('click', handleAddSubtask);
     if (els.mgrEmpFilter) {
         els.mgrEmpFilter.addEventListener('change', renderManagerKanbanOnly);
     }
@@ -363,7 +370,7 @@ function renderKanban(tasks, containerEl) {
     containerEl.innerHTML = '';
 
     columns.forEach(col => {
-        const colTasks = tasks.filter(t => t.status === col.id);
+        const colTasks = tasks.filter(t => t.status === col.id && !t.parent_task_id);
         const columnHtml = document.createElement('div');
         columnHtml.className = 'kanban-column';
         columnHtml.innerHTML = `
@@ -383,6 +390,12 @@ function renderKanban(tasks, containerEl) {
             const assignee = state.users.find(u => u.id === task.assignee_id);
             const type = state.taskTypes.find(t => t.id === task.type_id);
             
+            const subtasks = state.tasks.filter(st => st.parent_task_id === task.id);
+            const subtasksCompleted = subtasks.filter(st => st.status === 'done').length;
+            const subtasksBadge = subtasks.length > 0 
+                ? `<span class="label" style="background: rgba(255,255,255,0.1);"><i class="ri-node-tree"></i> ${subtasksCompleted}/${subtasks.length}</span>` 
+                : '';
+            
             const card = document.createElement('div');
             card.className = 'task-card';
             card.draggable = true;
@@ -392,6 +405,7 @@ function renderKanban(tasks, containerEl) {
                 <div class="task-labels">
                     <span class="label ${priority.class}">${priority.label}</span>
                     ${type ? `<span class="label type-label">${type.name}</span>` : ''}
+                    ${subtasksBadge}
                 </div>
                 <h4>${task.title}</h4>
                 <div class="task-meta">
@@ -498,11 +512,25 @@ function openModal(task = null) {
     });
 
     if (task) {
-        els.modalTitle.innerText = 'Редактировать задачу';
+        els.modalTitle.innerText = task.parent_task_id ? 'Редактировать подзадачу' : 'Редактировать задачу';
         els.fId.value = task.id;
         els.fTitle.value = task.title;
         els.fDesc.value = task.description || '';
         els.fStatus.value = task.status;
+        
+        if (task.parent_task_id) {
+            els.btnModalBack.classList.remove('hidden');
+            els.btnModalBack.onclick = () => {
+                const parent = state.tasks.find(t => t.id === task.parent_task_id);
+                if (parent) openModal(parent);
+                else closeModal();
+            };
+            if(els.subtasksSection) els.subtasksSection.classList.add('hidden');
+        } else {
+            els.btnModalBack.classList.add('hidden');
+            if(els.subtasksSection) els.subtasksSection.classList.remove('hidden');
+            renderSubtasks(task.id);
+        }
         els.fPriority.value = task.priority;
         els.fType.value = task.type_id || '';
         els.fStartDate.value = task.start_date || '';
@@ -516,6 +544,9 @@ function openModal(task = null) {
         els.fId.value = '';
         els.fAssignee.value = state.currentUser.id;
         els.fStartDate.value = new Date().toISOString().split('T')[0];
+        
+        if(els.btnModalBack) els.btnModalBack.classList.add('hidden');
+        if(els.subtasksSection) els.subtasksSection.classList.add('hidden');
     }
 
     if (state.currentUser.role !== 'manager') {
@@ -541,6 +572,9 @@ function closeModal() {
 
 async function handleTaskSave(e) {
     e.preventDefault();
+    const editId = els.fId.value;
+    const existingTask = editId ? state.tasks.find(t => t.id == editId) : null;
+
     const taskData = {
         title: els.fTitle.value,
         description: els.fDesc.value,
@@ -552,9 +586,9 @@ async function handleTaskSave(e) {
         deadline: els.fDeadline.value,
         plan_hours: parseFloat(els.fPlan.value) || 0,
         fact_hours: parseFloat(els.fFact.value) || 0,
+        parent_task_id: existingTask ? existingTask.parent_task_id : null
     };
 
-    const editId = els.fId.value;
     if (editId) {
         await apiPut(`/api/tasks/${editId}`, taskData);
     } else {
@@ -564,6 +598,97 @@ async function handleTaskSave(e) {
     await loadData();
     closeModal();
     switchView(state.currentView, true);
+}
+
+function renderSubtasks(parentId) {
+    const subtasks = state.tasks.filter(t => t.parent_task_id === parentId);
+    if (!els.subtasksList) return;
+    els.subtasksList.innerHTML = '';
+    
+    if (subtasks.length === 0) {
+        els.subtasksList.innerHTML = '<span style="color: var(--text-muted); font-size: 0.85rem;">Нет подзадач</span>';
+        return;
+    }
+    
+    subtasks.forEach(st => {
+        const el = document.createElement('div');
+        el.className = 'glass-panel';
+        el.style.padding = '0.5rem';
+        el.style.display = 'flex';
+        el.style.justifyContent = 'space-between';
+        el.style.alignItems = 'center';
+        el.style.cursor = 'pointer';
+        el.style.transition = 'all 0.2s';
+        
+        el.onclick = () => openModal(st);
+        el.onmouseover = () => el.style.background = 'rgba(255,255,255,0.08)';
+        el.onmouseout = () => el.style.background = '';
+        
+        let statusIcon = '<i class="ri-circle-line text-warning"></i>';
+        if (st.status === 'done') statusIcon = '<i class="ri-checkbox-circle-fill text-success"></i>';
+        else if (st.status === 'review') statusIcon = '<i class="ri-eye-line text-info"></i>';
+        
+        el.innerHTML = `
+            <div style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.9rem;">
+                ${statusIcon}
+                <span style="${st.status === 'done' ? 'text-decoration: line-through; opacity: 0.7;' : ''}">${st.title}</span>
+            </div>
+            <button type="button" class="icon-btn" onclick="event.stopPropagation(); window.toggleSubtaskStatus(${st.id}, '${st.status}')" style="padding: 0.2rem;">
+                <i class="ri-check-line"></i>
+            </button>
+        `;
+        els.subtasksList.appendChild(el);
+    });
+}
+
+window.toggleSubtaskStatus = async (id, currentStatus) => {
+    const st = state.tasks.find(t => t.id === id);
+    if (!st) return;
+    const newStatus = currentStatus === 'done' ? 'open' : 'done';
+    
+    const taskData = { ...st, status: newStatus };
+    const res = await apiPut(`/api/tasks/${id}`, taskData);
+    if (!res.error) {
+        await loadData();
+        const parentId = els.fId.value;
+        if (parentId) renderSubtasks(parseInt(parentId));
+        switchView(state.currentView, true);
+    }
+}
+
+async function handleAddSubtask() {
+    const title = els.newSubtaskTitle.value.trim();
+    const parentId = parseInt(els.fId.value);
+    if (!title || !parentId) return;
+    
+    const parent = state.tasks.find(t => t.id === parentId);
+    if (!parent) return;
+
+    els.btnAddSubtask.disabled = true;
+    
+    const subtaskData = {
+        title: title,
+        description: '',
+        status: 'open',
+        priority: parent.priority,
+        type_id: parent.type_id,
+        assignee_id: parent.assignee_id,
+        start_date: new Date().toISOString().split('T')[0],
+        deadline: '',
+        plan_hours: 0,
+        fact_hours: 0,
+        parent_task_id: parent.id
+    };
+    
+    const res = await apiPost('/api/tasks', subtaskData);
+    els.btnAddSubtask.disabled = false;
+    
+    if (!res.error) {
+        els.newSubtaskTitle.value = '';
+        await loadData();
+        renderSubtasks(parent.id);
+        switchView(state.currentView, true);
+    }
 }
 
 // --- API Helpers ---
