@@ -207,6 +207,12 @@ async function showApp() {
     els.sidebar.classList.remove('hidden');
     els.mainContent.classList.remove('hidden');
     
+    // Refresh full user profile (login response may not have all fields)
+    const freshUser = await apiGet('/api/me');
+    if (freshUser && !freshUser.error) {
+        state.currentUser = freshUser;
+    }
+    
     // Setup Sidebar
     els.currentUserName.innerText = state.currentUser.name.split(' ')[0];
     els.currentUserRole.innerText = state.currentUser.role === 'manager' ? 'Руководитель' : 'Сотрудник';

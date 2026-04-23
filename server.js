@@ -100,15 +100,11 @@ db.serialize(async () => {
         }
     });
 
-    db.get("SELECT COUNT(*) as count FROM columns", (err, row) => {
-        if (row && row.count === 0) {
-            db.run(`INSERT INTO columns (id, label, order_index) VALUES (?, ?, ?)`, ['open', 'Открыта', 0]);
-            db.run(`INSERT INTO columns (id, label, order_index) VALUES (?, ?, ?)`, ['in-progress', 'В работе', 1]);
-            db.run(`INSERT INTO columns (id, label, order_index) VALUES (?, ?, ?)`, ['review', 'На проверке', 2]);
-            db.run(`INSERT INTO columns (id, label, order_index) VALUES (?, ?, ?)`, ['done', 'Готово', 3]);
-            console.log('Default Columns Inserted.');
-        }
-    });
+    // Ensure default columns always exist (INSERT OR IGNORE is idempotent, safe for existing DBs)
+    db.run(`INSERT OR IGNORE INTO columns (id, label, order_index) VALUES (?, ?, ?)`, ['open', 'Открыта', 0]);
+    db.run(`INSERT OR IGNORE INTO columns (id, label, order_index) VALUES (?, ?, ?)`, ['in-progress', 'В работе', 1]);
+    db.run(`INSERT OR IGNORE INTO columns (id, label, order_index) VALUES (?, ?, ?)`, ['review', 'На проверке', 2]);
+    db.run(`INSERT OR IGNORE INTO columns (id, label, order_index) VALUES (?, ?, ?)`, ['done', 'Готово', 3]);
 });
 
 // --- API ROUTES --- //
@@ -123,7 +119,7 @@ app.post('/api/login', (req, res) => {
         if (isMatch) {
             req.session.userId = user.id;
             req.session.role = user.role;
-            res.json({ id: user.id, name: user.name, role: user.role, avatar: user.avatar });
+            res.json({ id: user.id, name: user.name, login: user.login, email: user.email || '', role: user.role, avatar: user.avatar });
         } else {
             res.status(401).json({ error: 'Invalid credentials' });
         }
