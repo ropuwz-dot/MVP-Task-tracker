@@ -646,3 +646,32 @@ input:disabled, select:disabled, textarea:disabled {
 ::-webkit-scrollbar-thumb:hover {
     background: rgba(255, 255, 255, 0.3);
 }
+
+/* Small button */
+.btn-sm {
+    padding: 0.35rem 0.75rem;
+    font-size: 0.85rem;
+}
+
+/* Add column inline form */
+.kanban-add-column {
+    min-width: 250px;
+    display: flex;
+    align-items: stretch;
+    justify-content: center;
+}
+
+.kanban-add-column .add-col-input {
+    background: rgba(0, 0, 0, 0.3);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: var(--radius-sm);
+    color: var(--text-main);
+    padding: 0.6rem 0.8rem;
+    font-family: inherit;
+    font-size: 0.9rem;
+}
+
+.kanban-add-column .add-col-input:focus {
+    outline: none;
+    border-color: var(--primary);
+}

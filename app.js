@@ -3,6 +3,7 @@ let state = {
     users: [],
     tasks: [],
     taskTypes: [],
+    columns: [],
     currentUser: null,
     currentView: 'dashboard'
 };
@@ -80,7 +81,33 @@ const els = {
     subtasksSection: document.getElementById('subtasks-section'),
     subtasksList: document.getElementById('subtasks-list'),
     btnAddSubtaskFull: document.getElementById('btn-add-subtask-full'),
-    fParentSelect: document.getElementById('task-parent-select')
+    fParentSelect: document.getElementById('task-parent-select'),
+
+    // Profile elements
+    viewProfile: document.getElementById('view-profile'),
+    formEditProfile: document.getElementById('form-edit-profile'),
+    profileName: document.getElementById('profile-name'),
+    profileLogin: document.getElementById('profile-login'),
+    profileEmail: document.getElementById('profile-email'),
+    profilePassword: document.getElementById('profile-password'),
+    profileError: document.getElementById('profile-error'),
+    profileSuccess: document.getElementById('profile-success'),
+    adminUsersSection: document.getElementById('admin-users-section'),
+    adminUsersList: document.getElementById('admin-users-list'),
+    navProfile: document.getElementById('nav-profile'),
+
+    // Profile edit modal (manager editing others)
+    profileModal: document.getElementById('profile-modal'),
+    profileModalTitle: document.getElementById('profile-modal-title'),
+    formEditUserProfile: document.getElementById('form-edit-user-profile'),
+    editUserId: document.getElementById('edit-user-id'),
+    editUserName: document.getElementById('edit-user-name'),
+    editUserLogin: document.getElementById('edit-user-login'),
+    editUserEmail: document.getElementById('edit-user-email'),
+    editUserPassword: document.getElementById('edit-user-password'),
+    editUserError: document.getElementById('edit-user-error'),
+    btnCloseProfileModal: document.getElementById('btn-close-profile-modal'),
+    btnCancelProfileModal: document.getElementById('btn-cancel-profile-modal')
 };
 
 const priorityDict = {
@@ -128,6 +155,20 @@ function bindEvents() {
     }
     if (els.mgrEmpFilter) {
         els.mgrEmpFilter.addEventListener('change', renderManagerKanbanOnly);
+    }
+
+    // Profile events
+    if (els.formEditProfile) {
+        els.formEditProfile.addEventListener('submit', handleProfileSave);
+    }
+    if (els.formEditUserProfile) {
+        els.formEditUserProfile.addEventListener('submit', handleEditUserSave);
+    }
+    if (els.btnCloseProfileModal) {
+        els.btnCloseProfileModal.addEventListener('click', closeProfileModal);
+    }
+    if (els.btnCancelProfileModal) {
+        els.btnCancelProfileModal.addEventListener('click', closeProfileModal);
     }
 }
 
@@ -185,14 +226,16 @@ async function showApp() {
 
 // --- Data Fetching ---
 async function loadData() {
-    const [u, t, tt] = await Promise.all([
+    const [u, t, tt, c] = await Promise.all([
         apiGet('/api/users'),
         apiGet('/api/tasks'),
-        apiGet('/api/task_types')
+        apiGet('/api/task_types'),
+        apiGet('/api/columns')
     ]);
     state.users = u || [];
     state.tasks = t || [];
     state.taskTypes = tt || [];
+    state.columns = c || [];
 }
 
 // --- Navigation ---
@@ -224,6 +267,12 @@ function switchView(viewName, forceUpdate = false) {
         els.pageSubtitle.innerText = 'Управление загрузкой и статусом на сегодня';
         els.viewTeam.classList.add('section-active');
         renderTeamView();
+    } else if (viewName === 'profile') {
+        els.btnCreateTask.style.display = 'none';
+        els.pageTitle.innerText = 'Профиль';
+        els.pageSubtitle.innerText = 'Управление вашим аккаунтом';
+        els.viewProfile.classList.add('section-active');
+        renderProfile();
     } else if (viewName === 'settings') {
         els.btnCreateTask.style.display = 'none';
         els.pageTitle.innerText = 'Настройки';
@@ -366,12 +415,7 @@ function renderTeamView() {
 }
 
 function renderKanban(tasks, containerEl) {
-    const columns = [
-        { id: 'open', label: 'Открыта' },
-        { id: 'in-progress', label: 'В работе' },
-        { id: 'review', label: 'На проверке' },
-        { id: 'done', label: 'Готово' }
-    ];
+    const columns = state.columns.slice().sort((a, b) => a.order_index - b.order_index);
 
     containerEl.innerHTML = '';
 
@@ -438,6 +482,86 @@ function renderKanban(tasks, containerEl) {
             cardsContainer.appendChild(card);
         });
         containerEl.appendChild(columnHtml);
+    });
+    
+    // Add new column button
+    const addColHtml = document.createElement('div');
+    addColHtml.className = 'kanban-column kanban-add-column';
+    addColHtml.innerHTML = `
+        <button class="btn btn-secondary w-100" style="height:100%; border-style: dashed; background: transparent;"><i class="ri-add-line"></i> Добавить колонку</button>
+    `;
+    addColHtml.onclick = () => showAddColumnForm(containerEl);
+    containerEl.appendChild(addColHtml);
+}
+
+async function handleAddColumn() {
+    // This function is no longer called directly — replaced by inline form.
+    // Kept for backward compat; actual inline form handles creation.
+}
+
+function showAddColumnForm(containerEl) {
+    // Replace the add-column button with an inline form
+    const addColEl = containerEl.querySelector('.kanban-add-column');
+    if (!addColEl) return;
+    
+    addColEl.innerHTML = `
+        <div style="padding: 1rem; display: flex; flex-direction: column; gap: 0.75rem;">
+            <input type="text" class="add-col-input" placeholder="Название колонки..." style="width: 100%;" maxlength="50" autofocus>
+            <p class="add-col-error text-danger" style="display: none; font-size: 0.8rem; margin: 0;"></p>
+            <div style="display: flex; gap: 0.5rem;">
+                <button class="btn btn-primary btn-sm add-col-confirm" style="flex: 1; justify-content: center;">Добавить</button>
+                <button class="btn btn-secondary btn-sm add-col-cancel" style="flex: 1; justify-content: center;">Отмена</button>
+            </div>
+        </div>
+    `;
+    addColEl.onclick = null;
+    
+    const input = addColEl.querySelector('.add-col-input');
+    const errorEl = addColEl.querySelector('.add-col-error');
+    const confirmBtn = addColEl.querySelector('.add-col-confirm');
+    const cancelBtn = addColEl.querySelector('.add-col-cancel');
+    
+    setTimeout(() => input.focus(), 50);
+    
+    cancelBtn.onclick = () => {
+        switchView(state.currentView, true);
+    };
+    
+    const doAdd = async () => {
+        const label = input.value.trim();
+        errorEl.style.display = 'none';
+        
+        if (!label) {
+            errorEl.innerText = 'Введите название колонки';
+            errorEl.style.display = 'block';
+            return;
+        }
+        
+        // Client-side duplicate check
+        const exists = state.columns.some(c => c.label.toLowerCase() === label.toLowerCase());
+        if (exists) {
+            errorEl.innerText = 'Колонка с таким названием уже есть';
+            errorEl.style.display = 'block';
+            return;
+        }
+        
+        confirmBtn.disabled = true;
+        const res = await apiPost('/api/columns', { label });
+        if (res && res.error) {
+            errorEl.innerText = res.error;
+            errorEl.style.display = 'block';
+            confirmBtn.disabled = false;
+            return;
+        }
+        
+        await loadData();
+        switchView(state.currentView, true);
+    };
+    
+    confirmBtn.onclick = doAdd;
+    input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); doAdd(); }
+        if (e.key === 'Escape') { switchView(state.currentView, true); }
     });
 }
 
@@ -529,6 +653,13 @@ function openModal(task = null, forceParentId = null) {
     state.taskTypes.filter(t => t.is_active || (task && task.type_id === t.id)).forEach(t => {
         els.fType.appendChild(new Option(t.name, t.id));
     });
+    
+    if (els.fStatus) {
+        els.fStatus.innerHTML = '';
+        state.columns.slice().sort((a, b) => a.order_index - b.order_index).forEach(c => {
+            els.fStatus.appendChild(new Option(c.label, c.id));
+        });
+    }
     
     if (els.fParentSelect) {
         els.fParentSelect.innerHTML = '<option value="">Нет (Корневая задача)</option>';
@@ -666,13 +797,8 @@ function renderSubtasks(parentId) {
         el.onmouseout = () => el.style.background = '';
         
         const priority = priorityDict[st.priority];
-        const statusMap = {
-            'open': 'Открыта',
-            'in-progress': 'В работе',
-            'review': 'На проверке',
-            'done': 'Готово'
-        };
-        const statusLabel = statusMap[st.status] || st.status;
+        const statusCol = state.columns.find(c => c.id === st.status);
+        const statusLabel = statusCol ? statusCol.label : st.status;
         const assignee = state.users.find(u => u.id === st.assignee_id);
         
         el.innerHTML = `
@@ -800,6 +926,153 @@ function renderBreadcrumbs(taskId, isNewSubtask = false) {
         els.modalBreadcrumbs.classList.add('hidden');
         els.modalBreadcrumbs.style.display = 'none';
         els.modalBreadcrumbs.innerHTML = '';
+    }
+}
+
+// --- Profile Management --- //
+
+function renderProfile() {
+    if (!state.currentUser) return;
+    
+    els.profileError.style.display = 'none';
+    els.profileSuccess.style.display = 'none';
+    els.profilePassword.value = '';
+    
+    // Fill current user data
+    els.profileName.value = state.currentUser.name || '';
+    els.profileLogin.value = state.currentUser.login || '';
+    els.profileEmail.value = state.currentUser.email || '';
+    
+    // Show admin section if manager
+    if (state.currentUser.role === 'manager') {
+        els.adminUsersSection.style.display = 'block';
+        renderAdminUsersList();
+    } else {
+        els.adminUsersSection.style.display = 'none';
+    }
+}
+
+function renderAdminUsersList() {
+    els.adminUsersList.innerHTML = '';
+    state.users.forEach(u => {
+        if (u.id === state.currentUser.id) return; // Skip self — edited above
+        
+        const item = document.createElement('div');
+        item.className = 'type-item';
+        item.innerHTML = `
+            <div style="flex: 1;">
+                <strong>${u.name}</strong>
+                <span style="margin-left: 10px; color: var(--text-muted);">@${u.login || ''}</span>
+                ${u.email ? `<span style="margin-left: 10px; color: var(--text-muted);">${u.email}</span>` : ''}
+            </div>
+            <div style="display: flex; align-items: center; gap: 0.75rem;">
+                <span class="label ${u.role === 'manager' ? 'high' : 'medium'}">${u.role === 'manager' ? 'Руководитель' : 'Сотрудник'}</span>
+                <button class="btn btn-secondary btn-sm" onclick="window.openEditUserModal(${u.id})">
+                    <i class="ri-edit-line"></i> Редактировать
+                </button>
+            </div>
+        `;
+        els.adminUsersList.appendChild(item);
+    });
+}
+
+async function handleProfileSave(e) {
+    e.preventDefault();
+    els.profileError.style.display = 'none';
+    els.profileSuccess.style.display = 'none';
+    
+    const body = {
+        name: els.profileName.value.trim(),
+        login: els.profileLogin.value.trim(),
+        email: els.profileEmail.value.trim(),
+        password: els.profilePassword.value
+    };
+    
+    if (!body.name) {
+        els.profileError.innerText = 'Имя обязательно';
+        els.profileError.style.display = 'block';
+        return;
+    }
+    if (!body.login) {
+        els.profileError.innerText = 'Логин обязателен';
+        els.profileError.style.display = 'block';
+        return;
+    }
+    
+    const res = await apiPut(`/api/users/${state.currentUser.id}`, body);
+    if (res && res.error) {
+        els.profileError.innerText = res.error;
+        els.profileError.style.display = 'block';
+    } else {
+        els.profileSuccess.innerText = 'Профиль успешно обновлён';
+        els.profileSuccess.style.display = 'block';
+        els.profilePassword.value = '';
+        
+        // Refresh current user data
+        const updated = await apiGet('/api/me');
+        if (updated && !updated.error) {
+            state.currentUser = updated;
+            els.currentUserName.innerText = updated.name.split(' ')[0];
+            els.avatar.innerText = updated.avatar;
+        }
+        await loadData();
+        
+        setTimeout(() => {
+            els.profileSuccess.style.display = 'none';
+        }, 3000);
+    }
+}
+
+window.openEditUserModal = async function(userId) {
+    const user = state.users.find(u => u.id === userId);
+    if (!user) return;
+    
+    els.profileModal.classList.remove('hidden');
+    els.editUserError.style.display = 'none';
+    
+    els.profileModalTitle.innerText = `Редактировать: ${user.name}`;
+    els.editUserId.value = user.id;
+    els.editUserName.value = user.name || '';
+    els.editUserLogin.value = user.login || '';
+    els.editUserEmail.value = user.email || '';
+    els.editUserPassword.value = '';
+};
+
+function closeProfileModal() {
+    els.profileModal.classList.add('hidden');
+}
+
+async function handleEditUserSave(e) {
+    e.preventDefault();
+    els.editUserError.style.display = 'none';
+    
+    const userId = els.editUserId.value;
+    const body = {
+        name: els.editUserName.value.trim(),
+        login: els.editUserLogin.value.trim(),
+        email: els.editUserEmail.value.trim(),
+        password: els.editUserPassword.value
+    };
+    
+    if (!body.name) {
+        els.editUserError.innerText = 'Имя обязательно';
+        els.editUserError.style.display = 'block';
+        return;
+    }
+    if (!body.login) {
+        els.editUserError.innerText = 'Логин обязателен';
+        els.editUserError.style.display = 'block';
+        return;
+    }
+    
+    const res = await apiPut(`/api/users/${userId}`, body);
+    if (res && res.error) {
+        els.editUserError.innerText = res.error;
+        els.editUserError.style.display = 'block';
+    } else {
+        closeProfileModal();
+        await loadData();
+        renderProfile();
     }
 }
 

@@ -58,6 +58,12 @@ db.serialize(async () => {
         is_active INTEGER DEFAULT 1
     )`);
 
+    db.run(`CREATE TABLE IF NOT EXISTS columns (
+        id TEXT PRIMARY KEY,
+        label TEXT NOT NULL,
+        order_index INTEGER DEFAULT 0
+    )`);
+
     db.run(`CREATE TABLE IF NOT EXISTS tasks (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         title TEXT NOT NULL,
@@ -73,9 +79,10 @@ db.serialize(async () => {
         FOREIGN KEY(type_id) REFERENCES task_types(id),
         FOREIGN KEY(assignee_id) REFERENCES users(id)
     )`);
-    // Try to add column if table already exists
+    // Try to add columns if table already exists
     db.run(`ALTER TABLE tasks ADD COLUMN start_date TEXT`, (err) => {});
     db.run(`ALTER TABLE tasks ADD COLUMN parent_task_id INTEGER`, (err) => {});
+    db.run(`ALTER TABLE users ADD COLUMN email TEXT DEFAULT ''`, (err) => {});
 
     // Add default users and types if empty
     db.get("SELECT COUNT(*) as count FROM users", async (err, row) => {
@@ -90,6 +97,16 @@ db.serialize(async () => {
             db.run(`INSERT INTO task_types (name) VALUES ('Доработка')`);
             
             console.log('Default Seed Data Inserted. Logins: admin/admin, petr/1234');
+        }
+    });
+
+    db.get("SELECT COUNT(*) as count FROM columns", (err, row) => {
+        if (row && row.count === 0) {
+            db.run(`INSERT INTO columns (id, label, order_index) VALUES (?, ?, ?)`, ['open', 'Открыта', 0]);
+            db.run(`INSERT INTO columns (id, label, order_index) VALUES (?, ?, ?)`, ['in-progress', 'В работе', 1]);
+            db.run(`INSERT INTO columns (id, label, order_index) VALUES (?, ?, ?)`, ['review', 'На проверке', 2]);
+            db.run(`INSERT INTO columns (id, label, order_index) VALUES (?, ?, ?)`, ['done', 'Готово', 3]);
+            console.log('Default Columns Inserted.');
         }
     });
 });
@@ -119,7 +136,7 @@ app.post('/api/logout', (req, res) => {
 });
 
 app.get('/api/me', requireAuth, (req, res) => {
-    db.get(`SELECT id, name, role, avatar FROM users WHERE id = ?`, [req.session.userId], (err, user) => {
+    db.get(`SELECT id, name, login, email, role, avatar FROM users WHERE id = ?`, [req.session.userId], (err, user) => {
         if (err || !user) return res.status(401).json({ error: 'Unauthorized' });
         res.json(user);
     });
@@ -127,10 +144,90 @@ app.get('/api/me', requireAuth, (req, res) => {
 
 // Users
 app.get('/api/users', requireAuth, (req, res) => {
-    db.all(`SELECT id, name, role, avatar FROM users`, (err, rows) => {
+    db.all(`SELECT id, name, login, email, role, avatar FROM users`, (err, rows) => {
         if (err) return res.status(500).json({ error: err.message });
         res.json(rows);
     });
+});
+
+// Get single user profile
+app.get('/api/users/:id', requireAuth, (req, res) => {
+    const targetId = parseInt(req.params.id);
+    // Employee can only view own profile
+    if (req.session.role !== 'manager' && req.session.userId !== targetId) {
+        return res.status(403).json({ error: 'Нет доступа к профилю этого пользователя' });
+    }
+    db.get(`SELECT id, name, login, email, role, avatar FROM users WHERE id = ?`, [targetId], (err, user) => {
+        if (err) return res.status(500).json({ error: err.message });
+        if (!user) return res.status(404).json({ error: 'Пользователь не найден' });
+        res.json(user);
+    });
+});
+
+// Update user profile
+app.put('/api/users/:id', requireAuth, async (req, res) => {
+    const targetId = parseInt(req.params.id);
+    // Rights check: employee can only edit self
+    if (req.session.role !== 'manager' && req.session.userId !== targetId) {
+        return res.status(403).json({ error: 'Нет прав для редактирования этого профиля' });
+    }
+
+    const { name, login, email, password } = req.body;
+    if (!name || !name.trim()) return res.status(400).json({ error: 'Имя обязательно' });
+    if (!login || !login.trim()) return res.status(400).json({ error: 'Логин обязателен' });
+    
+    // Validate login format (alphanumeric + underscore, 2-50 chars)
+    if (!/^[a-zA-Z0-9_]{2,50}$/.test(login.trim())) {
+        return res.status(400).json({ error: 'Логин может содержать только латинские буквы, цифры и _ (2-50 символов)' });
+    }
+
+    // Validate email if provided
+    if (email && email.trim()) {
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+            return res.status(400).json({ error: 'Некорректный формат email' });
+        }
+    }
+
+    try {
+        // Check login uniqueness (excluding current user)
+        const existingLogin = await new Promise((resolve, reject) => {
+            db.get(`SELECT id FROM users WHERE login = ? AND id != ?`, [login.trim(), targetId], (err, row) => {
+                if (err) reject(err); else resolve(row);
+            });
+        });
+        if (existingLogin) return res.status(400).json({ error: 'Этот логин уже занят другим пользователем' });
+
+        // Check email uniqueness (excluding current user) if email provided
+        if (email && email.trim()) {
+            const existingEmail = await new Promise((resolve, reject) => {
+                db.get(`SELECT id FROM users WHERE email = ? AND id != ? AND email != ''`, [email.trim(), targetId], (err, row) => {
+                    if (err) reject(err); else resolve(row);
+                });
+            });
+            if (existingEmail) return res.status(400).json({ error: 'Этот email уже используется другим пользователем' });
+        }
+
+        const avatar = name.trim().substring(0, 2) || '?';
+
+        if (password && password.trim()) {
+            // Update with new password
+            const hash = await bcrypt.hash(password.trim(), 10);
+            db.run(`UPDATE users SET name = ?, login = ?, email = ?, password_hash = ?, avatar = ? WHERE id = ?`,
+                [name.trim(), login.trim(), (email || '').trim(), hash, avatar, targetId], function(err) {
+                    if (err) return res.status(500).json({ error: err.message });
+                    res.json({ success: true });
+                });
+        } else {
+            // Update without changing password
+            db.run(`UPDATE users SET name = ?, login = ?, email = ?, avatar = ? WHERE id = ?`,
+                [name.trim(), login.trim(), (email || '').trim(), avatar, targetId], function(err) {
+                    if (err) return res.status(500).json({ error: err.message });
+                    res.json({ success: true });
+                });
+        }
+    } catch(err) {
+        res.status(500).json({ error: 'Ошибка сервера' });
+    }
 });
 
 app.post('/api/users', requireAuth, requireManager, async (req, res) => {
@@ -175,6 +272,38 @@ app.put('/api/task_types/:id/toggle', requireAuth, requireManager, (req, res) =>
     db.run(`UPDATE task_types SET is_active = ? WHERE id = ?`, [is_active, req.params.id], function(err) {
         if (err) return res.status(400).json({ error: err.message });
         res.json({ success: true });
+    });
+});
+
+// Columns
+app.get('/api/columns', requireAuth, (req, res) => {
+    db.all(`SELECT * FROM columns ORDER BY order_index ASC`, (err, rows) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json(rows);
+    });
+});
+
+app.post('/api/columns', requireAuth, (req, res) => {
+    const { label } = req.body;
+    if (!label || !label.trim()) return res.status(400).json({ error: 'Имя колонки обязательно' });
+    
+    const trimmed = label.trim();
+    
+    // Check for duplicate column names (case-insensitive)
+    db.get(`SELECT id FROM columns WHERE LOWER(label) = LOWER(?)`, [trimmed], (err, existing) => {
+        if (err) return res.status(500).json({ error: err.message });
+        if (existing) return res.status(400).json({ error: 'Колонка с таким названием уже существует' });
+        
+        // Auto-generate id
+        const id = 'col-' + Date.now();
+        
+        db.get(`SELECT MAX(order_index) as maxOrder FROM columns`, (err2, row) => {
+            const nextOrder = (row && row.maxOrder !== null) ? row.maxOrder + 1 : 0;
+            db.run(`INSERT INTO columns (id, label, order_index) VALUES (?, ?, ?)`, [id, trimmed, nextOrder], function(err3) {
+                if (err3) return res.status(400).json({ error: err3.message });
+                res.json({ id, label: trimmed, order_index: nextOrder });
+            });
+        });
     });
 });
 
